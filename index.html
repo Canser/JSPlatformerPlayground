@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>2D Platformer</title>
+    <style>
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            background: #000;
+        }
+
+        #wrapper {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #game {
+            display: flex;
+            background: #fff;
+            width: 800px;
+            height: 600px;
+        }
+
+        #toggle {
+            position: absolute;
+            right: 30px;
+            bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div id="wrapper">
+        <canvas id="game" width="800" height="600"></canvas>
+    </div>
+
+    <button id="toggle">START / STOP</button>
+
+    <script>
+
+        let canvas = document.getElementById('game'),
+            context = canvas.getContext('2d'),
+            paused = false,
+            keys = [],
+            lastKey = false,
+            boxes = [],
+            collidables = [],
+            player;
+
+
+        document.getElementById('toggle').onclick = () => {
+            paused = !paused;
+        };
+
+        class Box {
+            constructor(name, x, y, w, h, bg, hc) {
+                this._posX = x;
+                this._posY = y;
+                this._width = w;
+                this._height = h;
+                this._background = bg;
+                this._name = name;
+                this._hasCollider = hc;
+                this._friction = 1;
+            }
+
+            /**
+             * Set position X on the canvas
+             * @param x
+             */
+            set posX(x) {
+                this._posX = x;
+            }
+
+            /**
+             * Get width of the box
+             * @returns {*}
+             */
+            get posX() {
+                return this._posX;
+            }
+
+            /**
+             * Set position Y on the canvas
+             * @param y
+             */
+            set posY(y) {
+                this._posY = y;
+            }
+
+            /**
+             * Get Y position of the box
+             * @returns {*}
+             */
+            get posY() {
+                return this._posY;
+            }
+
+            /**
+             * Set width of the box
+             * @param w
+             */
+            set width(w) {
+                this._width = w;
+            }
+
+            /**
+             * Get width of the box
+             * @returns {*}
+             */
+            get width() {
+                return this._width;
+            }
+
+            /**
+             * Set height of the box
+             * @param h
+             */
+            set height(h) {
+                this._height = h;
+            }
+
+            /**
+             * Get height of the box
+             * @returns {*}
+             */
+            get height() {
+                return this._height;
+            }
+
+            /**
+             * Get name of the box
+             * @returns {*}
+             */
+            get name() {
+                return this._name;
+            }
+
+            /**
+             * Draws the geometry and properties requires CanvasRenderingContext2D
+             * @param ctx
+             */
+            draw(ctx) {
+                if(ctx === undefined) {
+                    console.error('Context is not defined!');
+                }
+
+                ctx.fillStyle = this._background;
+                ctx.fillRect(this._posX, this._posY, this._width, this._height);
+
+                context.fillStyle = 'white';
+                context.font = '10px Verdana';
+                context.fillText(this._name, this._posX, this._posY + 10);
+            }
+        }
+
+        class Player {
+            constructor (name, x, y) {
+                this._name = name;
+                this._posX = x;
+                this._posY = y;
+                this._forceX = 0;
+                this._forceY = 0;
+                this._speedX = .5;
+                this._stoppingSpeed = 1;
+                this._speedY = 2;
+                this._maxSpeedX = 6;
+                this._maxSpeedY = 20;
+                this._image = false;
+                this._colliding = [];
+                this._isRTL = false;
+                this._colliding_obj = {
+                    y: false,
+                    x: []
+                };
+            }
+
+            load(path) {
+                return new Promise((resolve, reject) => {
+                    let img = new Image();
+                    img.onload = () => resolve(img);
+                    img.src = path;
+                });
+            }
+
+            move(rtl) {
+                this._isRTL = !rtl;
+
+                if(Math.abs(this._forceX) < this._maxSpeedX) {
+                    this._forceX += rtl ? this._speedX : -this._speedX;
+                }
+            }
+
+            stop(immediately) {
+                let rtl = this._forceX < 0;
+
+                if(immediately || Math.abs(this._forceX) < this._maxSpeedX / 2) {
+                    this._forceX = 0;
+                } else {
+                    // @todo add friction based on the surface colliding
+
+                    // @todo add stopping smoothing
+                    this._forceX = 0;
+                    /*
+                    let that = this;
+
+                    let interval = setInterval(() => {
+                        if(rtl && that._forceX < 0 || !rtl && that._forceX > 0) {
+                            that._forceX += (that._forceX < 0 ? that._stoppingSpeed : -that._stoppingSpeed);
+                        } else {
+                            that._forceX = 0;
+                            clearInterval(interval);
+                        }
+                    }, 100);
+                    */
+                }
+            }
+
+            jump() {
+
+            }
+
+            draw() {
+                this._posX += this._forceX;
+
+                if(this._colliding_obj.x.length) {
+                    for(let item in this._colliding_obj.x) {
+                        let colliding = this._colliding_obj.x[item];
+
+                        if(this._posX + this._image.width >= colliding.posX &&
+                            this._posX <= colliding.posX + colliding.width &&
+                            this._posY + this._image.height >= colliding.posY
+                        ) {
+                            this._forceX = 0;
+
+                            if(colliding.posX <= this._posX) {
+                                this._posX = colliding.posX + colliding.width;
+                            } else {
+                                this._posX = colliding.posX - this._image.width;
+                            }
+                        }
+                    }
+                }
+
+                if(!this._colliding_obj.y) {
+                    if(this._forceY < this._maxSpeedY) {
+                        this._forceY += this._speedY;
+                    }
+
+                    this._posY += this._forceY;
+                } else {
+                    this._posY = this._colliding_obj.y.posY - this._image.height;
+                }
+
+                context.save();
+
+                if(this._isRTL) {
+                    context.translate(this._posX + canvas.width / 2, 0);
+                    context.scale(-1, 1);
+                    context.drawImage(this._image, canvas.width / 2 - this._image.width, this._posY, this._image.width, this._image.height);
+                } else {
+                    context.drawImage(this._image, this._posX, this._posY, this._image.width, this._image.height);
+                }
+
+                context.restore();
+
+                console.log(this._colliding_obj.x);
+            }
+        }
+
+        window.onload = function() {
+            let ground = new Box('ground', 0, canvas.height - 30, canvas.width, 30, '#14403e', true);
+            boxes.push(ground);
+
+            let box1 = new Box('box_1', 100, canvas.height - 60, 200, 30, 'pink', true);
+            boxes.push(box1);
+
+            let box2 = new Box('box_2', 300, 100, 100, 30, 'pink', true);
+            boxes.push(box2);
+
+            boxes.push(box1);
+
+            let box3 = new Box('box_3', 450, 300, 100, 30, 'pink', true);
+            boxes.push(box3);
+
+            let box4 = new Box('box_4', 400, 350, 100, 30, 'gray', false);
+            boxes.push(box4);
+            boxes.push(box3);
+
+            let box5 = new Box('box_4', canvas.width - 200, canvas.height - 200, 200, 200, 'black', true);
+            boxes.push(box5);
+
+            collidables = getCollidablesItems();
+
+            // Math.floor(Math.random() * canvas.width) + 1
+            player = new Player('canser', 359, 30);
+            player.load('cat.png').then(image => {
+                player._image = image;
+
+                draw();
+            });
+        };
+
+        function getCollidablesItems() {
+            return boxes.filter(box => box._hasCollider);
+        }
+
+
+        function draw() {
+            whatKey();
+
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+             for(let box in boxes) {
+                boxes[box].draw(context);
+            }
+
+            for(let item in collidables) {
+                let totalHeight = player._posY + player._image.height,
+                    totalWidth = player._posX + player._image.width,
+                    collidable = collidables[item];
+
+                if(totalHeight >= collidables[item].posY && totalHeight < collidables[item].posY + collidables[item].height &&
+                    totalWidth >= collidables[item].posX && player._posX <= collidables[item].posX + collidables[item].width
+                ) {
+                    if(player._colliding_obj.y !== collidable) {
+                        player._colliding_obj.y = collidable;
+                    }
+
+                    continue;
+                } else {
+                    if(player._colliding_obj.y === collidable) {
+                        player._colliding_obj.y = false;
+                    }
+                }
+
+                if(totalWidth >= collidable.posX &&
+                    player._posX <= collidable.posX + collidable.width &&
+                    totalHeight >= collidable.posY &&
+                    totalHeight <= collidable.posY + collidable.height) {
+                    if(!player._colliding_obj.x.includes(collidable)) {
+                        player._colliding_obj.x.push(collidable);
+                    }
+                } else {
+                    //player._colliding_obj.x.includes(collidable)
+                    let object = player._colliding_obj.x.indexOf(collidable);
+
+                    if(object !== -1) {
+                        player._colliding_obj.x.splice(object, 1);
+                    }
+                }
+            }
+
+            player.draw();
+
+            if(!paused)
+                requestAnimationFrame(draw);
+        }
+
+        window.addEventListener("keydown", (e) => {
+            keys[e.keyCode] = true;
+        });
+
+        window.addEventListener("keyup", (e) => {
+            console.log('event dispatched');
+            lastKey = e.keyCode;
+            keys[lastKey] = false;
+
+            if(lastKey == 37 || lastKey == 39) {
+                player.stop();
+            }
+        });
+
+        function stop(immediately) {
+
+        }
+
+        function whatKey() {
+            if (keys[37]) {
+                player.move();
+            }
+
+            if (keys[39]) {
+                player.move(true);
+            }
+        }
+    </script>
+</body>
+</html>
